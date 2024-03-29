@@ -45,7 +45,7 @@ DRY_RUN = True
 MOCK = False
 
 # Swap RX/TX pins for earlier versions of the CW308_N76E003 board
-_using_earlier_board = True
+_using_earlier_board = os.environ.get("USING_EARLIER_BOARD", False)
 
 def set_gpio(scope: cw.scopes.OpenADC):
 	scope.io.nrst = None
@@ -148,6 +148,34 @@ def get_base_fw_dir():
 	return cw_dir
 
 
+def get_base_scope_fw_dir():
+	# find the directory where the chipwhisperer python module is located
+	# this is used to find the firmware directory
+	cw_dir = os.path.dirname(cw.__file__)
+	cw_dir = os.path.normpath(os.path.join(cw_dir, "..", "..", "hardware", "capture", "chipwhisperer-lite", "sam3u_fw", "SAM3U_VendorExample", "src"))
+	return cw_dir
+
+
+def upgrade_scope_firmware():
+	global scope
+	scope_fw_dir = get_base_scope_fw_dir()
+	make_image(scope_fw_dir)
+	scope_fw_bin = os.path.join(scope_fw_dir, "ChipWhisperer-Lite.bin")
+	try:
+		scope.dis()
+		scope = None
+	except:
+		pass
+	finally:
+		scope = cw.scope(force= True)
+	if scope and scope.connectStatus and scope._getCWType() != "cwlite":
+		raise IOError("Only ChipWhisperer Lite is supported right now!")
+	scope.upgrade_firmware(scope_fw_bin)
+	scope.dis()
+	scope = None
+	time.sleep(1)
+
+
 scope: cw.scopes.OpenADC = None
 target: SimpleSerial = None
 prog: type[Programmer] = None
@@ -165,6 +193,7 @@ def really_reconnect():
 	global scope
 	global target
 	global prog
+	upgrade_scope_firmware()
 	try:
 		if scope and not scope.connectStatus:
 			scope.con()

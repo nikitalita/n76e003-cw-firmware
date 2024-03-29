@@ -63,6 +63,26 @@ def thing():
 		config.set_lock(True)
 		nuvo.program_config(config)
 
+def upgrade_scope_firmware():
+	global scope
+	scope_fw_dir = get_base_scope_fw_dir()
+	make_image(scope_fw_dir)
+	scope_fw_bin = os.path.join(scope_fw_dir, "ChipWhisperer-Lite.bin")
+	try:
+		scope.dis()
+		scope = None
+	except Exception as e:
+		print(e)
+	finally:
+		scope = cw.scope(force= True)
+	if scope and scope.connectStatus and scope._getCWType() != "cwlite":
+		raise IOError("Only ChipWhisperer Lite is supported right now!")
+	scope.upgrade_firmware(scope_fw_bin)
+	scope.dis()
+	scope = None
+	time.sleep(1)
+
+
 def main_test():
 	from mocks.mock_scope import MockOpenADC
 	cur_path = os.path.dirname(os.path.realpath(__file__))
@@ -70,14 +90,7 @@ def main_test():
 	make_image(fw_dir)
 	fw_path = os.path.join(fw_dir, "simpleserial-glitch-{}.hex".format(PLATFORM))
 	p = N76ICPProgrammer()
-	scope_fw_dir = get_base_scope_fw_dir()
-	make_image(scope_fw_dir)
-	scope_fw_bin = os.path.join(scope_fw_dir, "ChipWhisperer-Lite.bin")
-	p.scope = cw.scope(force= True)
-	p.scope.upgrade_firmware(scope_fw_bin)
-	p.scope.dis()
-	p.scope = None
-	time.sleep(1)
+	upgrade_scope_firmware()
 	# REQ_TEST_THING = 0x96
 	p.scope = cw.scope()
 	p.scope.default_setup()

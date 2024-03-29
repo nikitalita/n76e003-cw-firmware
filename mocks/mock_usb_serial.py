@@ -1,6 +1,5 @@
 
 import io
-from lzma import is_check_supported
 import math
 import os
 import re

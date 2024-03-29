@@ -36,7 +36,7 @@ SS_VER = "SS_VER_2_1"
 PLATFORM = "CW308_N76E003"
 # Only crypto target supported is TINYAES128C
 CRYPTO_TARGET = "NONE"
-NU51_BASE_FW_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "NuMicro8051_firmware")
+NU51_BASE_FW_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "numicro8051")
 
 # dry_run: Building and flashing the firmware, using a real scope and target, setting the all settings,
 # but not turning on glitching

@@ -13,7 +13,7 @@ USE_EXTERNAL_CLOCK = 1
 SS_VER = "SS_VER_2_1"
 PLATFORM = "CW308_N76E003"
 CRYPTO_TARGET = "NONE"
-NU51_BASE_FW_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "NuMicro8051_firmware")
+NU51_BASE_FW_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "numicro8051")
 
 def get_base_fw_dir():
 	if PLATFORM == "CW308_N76E003":
@@ -66,7 +66,7 @@ def thing():
 def main_test():
 	from mocks.mock_scope import MockOpenADC
 	cur_path = os.path.dirname(os.path.realpath(__file__))
-	fw_dir = os.path.join(cur_path, "NuMicro8051_firmware/simpleserial-glitch")
+	fw_dir = os.path.join(cur_path, "numicro8051/simpleserial-glitch")
 	make_image(fw_dir)
 	fw_path = os.path.join(fw_dir, "simpleserial-glitch-{}.hex".format(PLATFORM))
 	p = N76ICPProgrammer()

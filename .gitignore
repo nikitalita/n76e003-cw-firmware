@@ -89,3 +89,4 @@ traces/
 testfiles/
 external/
 .ipynb_checkpoints/
+.DS_Store

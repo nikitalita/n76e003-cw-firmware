@@ -1,114 +1,478 @@
+from functools import wraps
 import logging
 import subprocess
+import time
 from chipwhisperer.common.utils import util
 from chipwhisperer.capture.scopes import ScopeTypes
 from chipwhisperer.capture.scopes import CWNano
-from chipwhisperer.capture.api.programmers import save_and_restore_pins, Programmer
+from chipwhisperer.capture.api.programmers import save_and_restore_pins, Programmer, STM32FProgrammer, AVRProgrammer
 from chipwhisperer.capture.api.cwcommon import ChipWhispererCommonInterface
-from chipwhisperer.hardware.naeusb.programmer_avr import supported_avr
-from chipwhisperer.hardware.naeusb.programmer_xmega import supported_xmega
-from chipwhisperer.hardware.naeusb.programmer_stm32fserial import supported_stm32f
-from chipwhisperer.hardware.naeusb.programmer_neorv32 import Neorv32Programmer
 from chipwhisperer.capture.utils.IntelHex import IntelHex
 from chipwhisperer.logging import *
 from nuvoprogpy.nuvo51icpy.nuvo51icpy import Nuvo51ICP, ConfigFlags, N76E003_DEVID
+from nuvoprogpy.nuvo51icpy.lib.libnuvo51icp import ICPLibInterface
+from chipwhisperer.hardware.naeusb.serial import USART
+from chipwhisperer.hardware.naeusb.naeusb import NAEUSB, packuint32, unpackuint32
+
 from pyparsing import C
+
 
 # Disables brown-out detector
 NO_BROWNOUT_CONFIG = [0xFF, 0xFF, 0x73, 0xFF, 0xFF]
+class N76E003:
+    signature = N76E003_DEVID
+    name = "N76E003"
+
+supported_devices = [N76E003]
+
+REQ_NU51_ICP_PROGRAM = 0x40
+
+# Enter programming mode
+NUVO_CMD_CONNECT = 0xae
+# Get Device ID
+NUVO_CMD_GET_DEVICEID = 0xb1
+# Read flash
+NUVO_CMD_READ_FLASH = 0xa5
+# Write flash
+NUVO_CMD_PAGE_ERASE = 0xD5
+# Exit programming mode
+NUVO_CMD_RESET = 0xad
+
+# ICP Specific
+# Get Unique ID
+NUVO_CMD_GET_UID = 0xb2
+# Get Company ID
+NUVO_CMD_GET_CID = 0xb3
+# Get Unique Company ID
+NUVO_CMD_GET_UCID = 0xb4
+# Mass erase
+NUVO_CMD_MASS_ERASE = 0xD6
+# Puts the target into ICP mode, but doesn't initialize the PGM.
+NUVO_CMD_ENTER_ICP_MODE = 0xe7
+# Takes the target out of ICP mode, but doesn't deinitialize the PGM.
+NUVO_CMD_EXIT_ICP_MODE = 0xe8
+# Takes chip out of and then puts it back into ICP mode
+NUVO_CMD_REENTER_ICP = 0xe9
+# For getting the configuration bytes to read at consistent times during an ICP reentry.
+NUVO_CMD_REENTRY_GLITCH = 0xea
+# Write to ROM
+NUVO_CMD_WRITE_FLASH = 0xed
+# Set the programming time between bytes
+NUVO_SET_PROG_TIME = 0xec
+# Set the erase time for a page
+NUVO_SET_PAGE_ERASE_TIME = 0xee
+
+# ChipWhisperer specific
+NUVO_GET_RAMBUF = 0xe4
+NUVO_SET_RAMBUF = 0xe5
+NUVO_GET_STATUS = 0xe6
+
+NUVO_ERR_OK = 0
+NUVO_ERR_FAILED = 1
+NUVO_ERR_INCORRECT_PARAMS = 2
+NUVO_ERR_COLLISION = 3
+NUVO_ERR_TIMEOUT = 4
+NUVO_ERR_WRITE_FAILED = 5
+NUVO_ERR_READ_FAILED = 6
+
+# page size
+NU51_PAGE_SIZE = 128
+NU51_PAGE_MASK = 0xFF80
+
+
+NUVO_PREFIX_LEN = 3
+def packuint16(data):
+    """Converts a 32-bit integer into format expected by USB firmware"""
+
+    data = int(data)
+    return [data & 0xff, (data >> 8) & 0xff]
+def unpackuint16(buf, offset=0):
+    """"Converts an array into a 16-bit integer"""
+
+    pint = buf[offset]
+    pint |= buf[offset+1] << 8
+    return pint
+
+
+class newaeUSBICPLib(ICPLibInterface):
+    REQ_NU51_ICP_PROGRAM = 0x40
+    PREFIX_LEN = NUVO_PREFIX_LEN
+    MAX_BUFFER_SIZE = 256
+
+    def __init__(self, scope: ScopeTypes):
+        self.scope: ScopeTypes = scope
+        self._usb: NAEUSB = scope._getNAEUSB()
+
+    def err_to_str(self, err):
+        if err == NUVO_ERR_OK:
+            return "ERR_OK"
+        if err == NUVO_ERR_FAILED:
+            return "ERR_FAILED"
+        if err == NUVO_ERR_INCORRECT_PARAMS:
+            return "ERR_INCORRECT_PARAMS"
+        if err == NUVO_ERR_COLLISION:
+            return "ERR_COLLISION"
+        if err == NUVO_ERR_TIMEOUT:
+            return "ERR_TIMEOUT"
+        if err == NUVO_ERR_WRITE_FAILED:
+            return "ERR_WRITE_FAILED"
+        if err == NUVO_ERR_READ_FAILED:
+            return "ERR_READ_FAILED"
+        return "UNKNOWN"
+    
+    def cmd_to_str(self, wValue):
+        cmd = wValue & 0xFF
+        if cmd == NUVO_CMD_WRITE_FLASH:
+            return "WRITE_ROM"
+        if cmd == NUVO_CMD_CONNECT:
+            return "CONNECT"
+        if cmd == NUVO_CMD_GET_DEVICEID:
+            return "GET_DEVICEID"
+        if cmd == NUVO_CMD_RESET:
+            return "RESET"
+        if cmd == NUVO_CMD_READ_FLASH:
+            return "READ_ROM"
+        if cmd == NUVO_CMD_GET_UID:
+            return "GET_UID"
+        if cmd == NUVO_CMD_GET_CID:
+            return "GET_CID"
+        if cmd == NUVO_CMD_GET_UCID:
+            return "GET_UCID"
+        if cmd == NUVO_CMD_PAGE_ERASE:
+            return "PAGE_ERASE"
+        if cmd == NUVO_CMD_MASS_ERASE:
+            return "MASS_ERASE"
+        if cmd == NUVO_GET_RAMBUF:
+            offset = (wValue >> 8) & 0xFF
+            return "GET_RAMBUF [offset: {:02x}]".format(offset)
+        if cmd == NUVO_SET_RAMBUF:
+            offset = (wValue >> 8) & 0xFF
+            return "SET_RAMBUF [offset: {:02x}]".format(offset)
+        if cmd == NUVO_GET_STATUS:
+            return "GET_STATUS"
+        if cmd == NUVO_CMD_ENTER_ICP_MODE:
+            return "ENTER_ICP_MODE"
+        if cmd == NUVO_CMD_EXIT_ICP_MODE:
+            return "EXIT_ICP_MODE"
+        if cmd == NUVO_CMD_REENTER_ICP:
+            return "REENTER_ICP"
+        if cmd == NUVO_CMD_REENTRY_GLITCH:
+            return "REENTRY_GLITCH"
+        if cmd == NUVO_SET_PROG_TIME:
+            return "SET_PROG_TIME"
+        if cmd == NUVO_SET_PAGE_ERASE_TIME:
+            return "SET_PAGE_ERASE_TIME"
+        return "UNKNOWN"
+
+    def _n51DoCmd(self, cmd, data: bytearray, checkStatus=True, rlen=0):
+        """
+        Send a command to the Nu51 ICP.
+
+        :param cmd: Command to send
+        :param data: Data to send
+        :param checkStatus: Check the status of the command
+        :param rlen: Length of the response to read (minus the prefix) (default=0)
+        """
+        if data is None:
+            data = bytearray()
+        if not isinstance(data, bytearray):
+            data = bytearray(data)
+        self._usb.sendCtrl(self.REQ_NU51_ICP_PROGRAM, cmd, data)
+        # Check status
+        status = []
+        if checkStatus:
+            status = self._n51GetStatus(dlen=NUVO_PREFIX_LEN + rlen)
+            if status[1] != NUVO_ERR_OK:
+                raise IOError("Nu51 ICP Command %s (%x) failed: err=%s (%x), timeout=%d" % (self.cmd_to_str(cmd), cmd, self.err_to_str(status[1]), status[1], status[2]))
+            scope_logger.debug("Nu51 ICP Command %s (%x) OK" % (self.cmd_to_str(cmd), cmd))
+        return status[NUVO_PREFIX_LEN:]
+    def _n51DoRead(self, cmd, dlen):
+        """
+        Read the result of some command.
+        """
+        # windex selects interface, set to 0
+        return self._usb.readCtrl(self.REQ_NU51_ICP_PROGRAM, cmd, dlen)
+
+    def _n51GetStatus(self, dlen=NUVO_PREFIX_LEN):
+        """
+        Read the result of some command.
+        """
+        return self._n51DoRead(NUVO_GET_STATUS, dlen=dlen)
+    def _n51GetRambuf(self, offset, dlen):
+        """
+        Read the ram buffer
+        """
+        return self._n51DoRead(NUVO_GET_RAMBUF | (offset << 8), dlen=dlen)
+    def _n51SetRambuf(self, offset, data):
+        """
+        Set the ram buffer.
+        """
+        # windex selects interface, set to 0
+        return self._n51DoCmd(NUVO_SET_RAMBUF | (offset << 8), data, checkStatus=True)
+
+    def init(self, do_reset=True) -> bool:
+        val = (1 if do_reset else 0)
+        self.scope.io.cwe.setAVRISPMode(1)
+        self._n51DoCmd(NUVO_CMD_CONNECT, bytearray([val]), checkStatus=True)
+        return True
+
+    def entry(self, do_reset=True) -> bool:
+        val = (1 if do_reset else 0)
+        self._n51DoCmd(NUVO_CMD_ENTER_ICP_MODE, bytearray([val]), checkStatus=True)
+        return True
+    
+    def exit(self) -> bool:
+        self._n51DoCmd(NUVO_CMD_EXIT_ICP_MODE, bytearray(), checkStatus=True)
+        return True
+
+    def reentry(self, delay1=5000, delay2=1000, delay3=10) -> bool:
+        data = packuint32(delay1) + packuint32(delay2) + packuint32(delay3)
+        self._n51DoCmd(NUVO_CMD_REENTER_ICP, data, checkStatus=True)
+        return True
+
+    def reentry_glitch(self, delay1=5000, delay2=1000, delay_after_trigger_high=0, delay_before_trigger_low=280) -> bool:
+        data = packuint32(delay1) + packuint32(delay2) + packuint32(delay_after_trigger_high) + packuint32(delay_before_trigger_low)
+        self._n51DoCmd(NUVO_CMD_REENTRY_GLITCH, data,  checkStatus=True)
+        return True
+
+    def deinit(self, leave_reset_high: bool = False) -> bool:
+        val = 1 if leave_reset_high else 0
+        self._n51DoCmd(NUVO_CMD_RESET, bytearray([val]), checkStatus=True)
+        self.scope.io.cwe.setAVRISPMode(0)
+        return True
+
+    def read_device_id(self) -> int:
+        return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_DEVICEID, bytearray(), checkStatus=True, rlen=4))
+
+    def read_pid(self) -> int:
+        return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_DEVICEID, bytearray(), checkStatus=True, rlen=4))
+
+    def read_cid(self) -> int:
+        return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_CID, bytearray(), checkStatus=True, rlen=4))
+
+    def read_uid(self) -> bytes:
+        return self._n51DoCmd(NUVO_CMD_GET_UID, bytearray(), checkStatus=True, rlen=12)
+
+    def read_ucid(self) -> bytes:
+        return self._n51DoCmd(NUVO_CMD_GET_UCID, bytearray(), checkStatus=True, rlen=16)
+
+    def read_flash(self, addr, length) -> bytes:
+        memread = 0
+        endptsize = 64
+        dlen = length
+
+        membuf = []
+
+        while memread < dlen:
+
+            # Read into internal buffer
+            ramreadln = dlen - memread
+
+            # Check if maximum size for internal buffer
+            if ramreadln > self.MAX_BUFFER_SIZE:
+                ramreadln = self.MAX_BUFFER_SIZE
+
+            self._n51DoCmd(NUVO_CMD_READ_FLASH, packuint32(addr + memread) + packuint16(ramreadln), checkStatus=True)
+
+            epread = 0
+
+            # First we need to fill the page buffer in the USB Interface using smaller transactions
+            while epread < ramreadln:
+
+                epreadln = ramreadln - epread
+                if epreadln > endptsize:
+                    epreadln = endptsize
+
+                # Read data out progressively
+                membuf.extend(self._n51GetRambuf(epread, dlen=epreadln))
+                # print epread
+                epread += epreadln
+            memread += ramreadln
+        return bytes(membuf)
+
+    def write_flash(self, addr, data) -> int:
+        memwritten = 0
+        endptsize = 64
+        start = 0
+        end = endptsize
+        pagesize = 128
+        target_logger.debug("Writing to address 0x{:04x}".format(addr))
+        # if addr % pagesize:
+        #     target_logger.warning('You appear to be writing to an address that is not page aligned, you will probably write the wrong data')
+        if len(data) < pagesize:
+            # target_logger.warning('You are writing more data than a page size, you will probably write the wrong data')
+            pagesize = len(data)
+        failed = False
+        while memwritten < len(data):
+
+            epwritten = 0
+            tx_checksum = 0
+
+            # First we need to fill the page buffer in the USB Interface using smaller transactions
+            while epwritten < pagesize:
+
+                # Check for less than full endpoint written
+                if end > len(data):
+                    end = len(data)
+
+                # Get slice of data
+                epdata = data[start:end]
+                for byte in epdata:
+                    tx_checksum+=byte
+                tx_checksum &= 0xffff
+
+                print("%d %d %d" % (epwritten, len(epdata), memwritten))
+                # Copy to USB interface buffer
+                self._n51SetRambuf(epwritten, data=epdata)
+
+                epwritten += len(epdata)
+
+                # Check for final write indicating we are done
+                if end == len(data):
+                    break
+
+                start += endptsize
+                end += endptsize
+
+            # Copy internal buffer to final location (probably FLASH memory)
+
+
+            # Do write into memory type
+            infoblock = []
+
+
+            infoblock.extend(packuint32(addr + memwritten))
+            infoblock.extend(packuint16(epwritten))
+
+            # print "%x" % (addr + memwritten)
+            # print epwritten
+            rx_checksum = unpackuint16(self._n51DoCmd(NUVO_CMD_WRITE_FLASH, data=infoblock, checkStatus=True, rlen=2))
+            if rx_checksum != tx_checksum:
+                target_logger.warning("Checksum error writing to address 0x{:04x}".format(addr + memwritten))
+                failed = True
+            memwritten += epwritten
+        if failed:
+            raise IOError("Write failed!")
+        return True
+
+    def mass_erase(self) -> bool:
+        self._n51DoCmd(NUVO_CMD_MASS_ERASE, bytearray(), checkStatus=True)
+        return True
+
+    def page_erase(self, addr) -> bool:
+        self._n51DoCmd(NUVO_CMD_PAGE_ERASE, packuint32(addr), checkStatus=True)
+        return True
+
+
 class N76ICPProgrammer(Programmer):
-	def __init__(self, config = ConfigFlags(NO_BROWNOUT_CONFIG)):
-		self.logfunc = target_logger.info
-		self._erased = False
-		self.config = config
+    def __init__(self, scope = None, logfunc=print, config = ConfigFlags(NO_BROWNOUT_CONFIG)):
+        self.logfunc = logfunc
+        self._erased = False
+        self.config = config
+        # self.nuvo = None
+        self.scope = scope
 
-	def open(self):
-		pass
+    def open(self):
+        self.lib = newaeUSBICPLib(self.scope)
 
-	def save_pin_setup(self):
-		self.pin_setup['pdic'] = self.scope.io.pdic
-		self.pin_setup['pdid'] = self.scope.io.pdid
-		self.pin_setup['nrst'] = self.scope.io.nrst
-		self.set_pins()
+    def save_pin_setup(self):
+        self.pin_setup['pdic'] = self.scope.io.pdic
+        self.pin_setup['pdid'] = self.scope.io.pdid
+        self.pin_setup['nrst'] = self.scope.io.nrst
 
-	def restore_pin_setup(self):
-		self.scope.io.pdic = self.pin_setup['pdic']
-		self.scope.io.pdid = self.pin_setup['pdid']
-		self.scope.io.nrst = self.pin_setup['nrst']
+    def restore_pin_setup(self):
+        self.scope.io.pdic = self.pin_setup['pdic']
+        self.scope.io.pdid = self.pin_setup['pdid']
+        self.scope.io.nrst = self.pin_setup['nrst']
 
-	def set_pins(self):
-		""" 
-		We don't use the scope's pins, we use the Raspberry Pi's pins.
-		Just turn them off here so they don't interfere.
-		"""
-		self.scope.io.pdic = None
-		self.scope.io.pdid = None
-		self.scope.io.nrst = None
+    def setUSBInterface(self, iface):
+        raise DeprecationWarning('find method now includes what setUSBInterface did')
+    @save_and_restore_pins
+    def find(self):
+        with Nuvo51ICP(library=self.lib, _enter_no_init = True, logfunc=self.logfunc, _deinit_reset_high=False) as nuvo:
+            nuvo.init(check_device = False)
+            dev_info = nuvo.get_device_info()
+            if dev_info.device_id != N76E003_DEVID:
+                raise IOError("Device not found: {:04x}".format(dev_info.device_id))
+            self.logfunc("Found N76E003:")
+            self.logfunc(dev_info)
+    
+    @staticmethod
+    def convert_to_bin(filename:str):
+        if filename.endswith(".hex"):
+            # convert it to bin
+            f = IntelHex(filename)
+            start=f.minaddr()
+            fw_data = f.tobinarray(start=start)
+            return bytes(fw_data)
+        return open(filename, "rb").read()
 
-	def setUSBInterface(self, iface):
-		raise DeprecationWarning('find method now includes what setUSBInterface did')
-	@save_and_restore_pins
-	def find(self):
-		with Nuvo51ICP() as nuvo:
-			dev_info = nuvo.get_device_info()
-			if dev_info.device_id != N76E003_DEVID:
-				raise IOError("Device not found: {}".format(str(nuvo.get_device_info())))
-			self.logfunc("Found N76E003:")
-			self.logfunc(nuvo.get_device_info())
-	
-	@staticmethod
-	def convert_to_bin(filename:str):
-		if filename.endswith(".hex"):
-			# convert it to bin
-			f = IntelHex(filename)
-			start=f.minaddr()
-			fw_data = f.tobinarray(start=start)
-			return bytes(fw_data)
-		return open(filename, "rb").read()
-
-	@save_and_restore_pins
-	def program(self, filename:str, memtype="flash", verify=True):
-		self.lastFlashedFile = filename
-		file_data = self.convert_to_bin(filename)
-		programmed = False
-		with Nuvo51ICP() as nuvo:
-			should_erase = not self.erased
-			self.erased = False
-			programmed = nuvo.program_aprom(file_data, config=self.config, verify=verify, erase=should_erase)
-			programmed = programmed and nuvo.write_config(self.config, _skip_erase = (not should_erase))
-		if not programmed:
-			raise Exception("Failed to flash image. Please check your setup.")
+    @save_and_restore_pins
+    def program(self, filename:str, memtype="flash", verify=True):
+        self.lastFlashedFile = filename
+        file_data = self.convert_to_bin(filename)
+        programmed = False
+        should_erase = not self.erased
+        self.erased = False
+        err_msg = "Failed to flash image. Please check your setup."
+        with Nuvo51ICP(library=self.lib, logfunc=self.logfunc, _deinit_reset_high=False) as nuvo:
+            if memtype == "ldrom":
+                if not nuvo.check_ldrom_size(len(file_data)):
+                    programmed = False
+                    err_msg = "LDROM size is too large for the device (>4k). Please check your setup."
+                else:
+                    if not self.config.is_ldrom_boot():
+                        self.logfunc("Overriding LDROM boot setting to True")
+                        self.config.set_ldrom_boot(True)
+                    if not self.config.get_ldrom_size() < len(file_data):
+                        self.config.set_ldrom_size(len(file_data))
+                        self.logfunc("Overriding LDROM size setting to {}".format(len(file_data)))
+                    programmed = nuvo.program_ldrom(file_data, self.config, verify=verify, erase=should_erase)
+                # check config
+                if programmed:
+                    nuvo.program_config(self.config, erase = (should_erase))
+            else:
+                programmed = nuvo.program_aprom(file_data, config=self.config, verify=verify, erase=should_erase)
+                programmed = programmed and nuvo.program_config(self.config, erase = (should_erase))
+        if not programmed:
+            raise Exception(err_msg)
 
 
-	@save_and_restore_pins
-	def erase(self):
-		with Nuvo51ICP() as nuvo:
-			self.erased = nuvo.mass_erase()
-		if not self.erased:
-			raise IOError("Failed to erase device")
+    @save_and_restore_pins
+    def erase(self):
+        with Nuvo51ICP(library=self.lib, logfunc=self.logfunc, _deinit_reset_high=False) as nuvo:
+            self.erased = nuvo.mass_erase()
+        if not self.erased:
+            raise IOError("Failed to erase device")
 
-	def close(self):
-		pass
+    @save_and_restore_pins
+    def close(self):
+        self.lib = None
+        pass
 
-	def log(self, text):
-		"""Logs the text and broadcasts it"""
-		target_logger.info(text)
-		self.newTextLog.emit(text)
+    def log(self, text):
+        """Logs the text and broadcasts it"""
+        target_logger.info(text)
+        self.newTextLog.emit(text)
 
-	def autoProgram(self, hexfile, erase=True, verify=True, logfunc=print, waitfunc=None):
-		self.logfunc = logfunc
-		self.program(self, hexfile, verify=verify)
+    def autoProgram(self, hexfile, erase=True, verify=True, logfunc=print, waitfunc=None):
+        self.logfunc = logfunc
+        if erase:
+            self.erase()
+        self.program(self, hexfile, verify=verify)
 
-	@save_and_restore_pins
-	def readConfig(self) -> ConfigFlags:
-		with Nuvo51ICP() as nuvo:
-			return nuvo.read_config()
+    @save_and_restore_pins
+    def readConfig(self) -> ConfigFlags:
+        config = None
+        with Nuvo51ICP(library=self.lib, logfunc=self.logfunc) as nuvo:
+            config = nuvo.read_config()
+        return config
 
-	@save_and_restore_pins
-	def writeConfig(self, config: ConfigFlags):
-		with Nuvo51ICP() as nuvo:
-			nuvo.write_config(config)
-	
+    @save_and_restore_pins
+    def writeConfig(self, config: ConfigFlags):
+        with Nuvo51ICP(library=self.lib, logfunc=self.logfunc) as nuvo:
+            nuvo.program_config(config)
+    
 COMPILED_CLK_FREQ  = 16000000
 ACTUAL_CLKGEN_FREQ = 16000000
 USE_EXTERNAL_CLOCK = 1
@@ -116,30 +480,63 @@ SS_VER = "SS_VER_2_1"
 PLATFORM = "CW308_N76E003"
 CRYPTO_TARGET = "NONE"
 
+def get_base_fw_dir():
+	if PLATFORM == "CW308_N76E003":
+		return NU51_BASE_FW_DIR
+	# find the directory where the chipwhisperer python module is located
+	# this is used to find the firmware directory
+	cw_dir = os.path.dirname(cw.__file__)
+	# ../../hardware/victims/firmware/
+	cw_dir = os.path.normpath(os.path.join(cw_dir, "..", "..", "hardware", "victims", "firmware"))
+	return cw_dir
+
+def get_base_scope_fw_dir():
+	# find the directory where the chipwhisperer python module is located
+	# this is used to find the firmware directory
+	cw_dir = os.path.dirname(cw.__file__)
+	# ../../hardware/victims/firmware/
+	cw_dir = os.path.normpath(os.path.join(cw_dir, "..", "..", "hardware", "capture", "chipwhisperer-lite", "sam3u_fw", "SAM3U_VendorExample", "src"))
+	return cw_dir
+
 def make_image(fw_dir:str):
-	print(subprocess.check_output(["make", "clean"], 
-					cwd=fw_dir).decode("utf-8"))	
-	args = [
-			"make",
-			"PLATFORM={}".format(PLATFORM),
-			"USE_EXTERNAL_CLOCK={}".format(USE_EXTERNAL_CLOCK), 
-			"CRYPTO_TARGET={}".format(CRYPTO_TARGET), 
-			"SS_VER={}".format(SS_VER), 
-			"F_CPU={}".format(COMPILED_CLK_FREQ), 
-			"-j"]
-	print(subprocess.check_output(args, cwd=fw_dir).decode("utf-8"))
-	fw_path = os.path.join(fw_dir, "simpleserial-glitch-{}.hex".format(PLATFORM))
-	return fw_path
+    print(subprocess.check_output(["make", "clean"], 
+                    cwd=fw_dir).decode("utf-8"))	
+    args = [
+            "make",
+            "PLATFORM={}".format(PLATFORM),
+            "USE_EXTERNAL_CLOCK={}".format(USE_EXTERNAL_CLOCK), 
+            "CRYPTO_TARGET={}".format(CRYPTO_TARGET), 
+            "SS_VER={}".format(SS_VER), 
+            "F_CPU={}".format(COMPILED_CLK_FREQ), 
+            "-j"
+            ]
+    print(subprocess.check_output(args, cwd=fw_dir).decode("utf-8"))
+    fw_path = os.path.join(fw_dir, "simpleserial-glitch-{}.hex".format(PLATFORM))
+    return fw_path
 # get path of this file
+#define REQ_TEST_THING 0x41
 if __name__ == "__main__":
-	from mocks.mock_scope import MockOpenADC
-	cur_path = os.path.dirname(os.path.realpath(__file__))
-	fw_dir = os.path.join(cur_path, "NuMicro8051_firmware/simpleserial-glitch")
-	make_image(fw_dir)
-	fw_path = os.path.join(fw_dir, "simpleserial-glitch-{}.hex".format(PLATFORM))
-	p = N76ICPProgrammer()
-	p.scope = MockOpenADC()
-	p.scope.con()
-	p.find()
-	p.erase()
-	p.program(fw_path)
+    from mocks.mock_scope import MockOpenADC
+    import chipwhisperer as cw
+    cur_path = os.path.dirname(os.path.realpath(__file__))
+    fw_dir = os.path.join(cur_path, "NuMicro8051_firmware/simpleserial-glitch")
+    make_image(fw_dir)
+    fw_path = os.path.join(fw_dir, "simpleserial-glitch-{}.hex".format(PLATFORM))
+    p = N76ICPProgrammer()
+    scope_fw_dir = get_base_scope_fw_dir()
+    make_image(scope_fw_dir)
+    scope_fw_bin = os.path.join(scope_fw_dir, "ChipWhisperer-Lite.bin")
+    p.scope = cw.scope(force= True)
+    p.scope.upgrade_firmware(scope_fw_bin)
+    p.scope.dis()
+    p.scope = None
+    time.sleep(1)
+    # REQ_TEST_THING = 0x96
+    p.scope = cw.scope()
+    p.scope.default_setup()
+    p.scope.io.nrst = None
+    scope_logger.setLevel(logging.DEBUG)
+    p.open()
+    p.find()
+    p.erase()
+    p.program(fw_path)

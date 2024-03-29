@@ -62,6 +62,8 @@ NUVO_SET_PAGE_ERASE_TIME = 0xee
 NUVO_SET_MASS_ERASE_TIME = 0xef
 # Set the post mass erase time
 NUVO_SET_POST_MASS_ERASE_TIME = 0xe3
+# Get the Product ID
+NUVO_CMD_GET_PID = 0xeb
 
 # ChipWhisperer specific
 NUVO_GET_RAMBUF = 0xe4
@@ -169,6 +171,12 @@ class newaeUSBICPLib(ICPLibInterface):
             return "SET_PROG_TIME"
         if cmd == NUVO_SET_PAGE_ERASE_TIME:
             return "SET_PAGE_ERASE_TIME"
+        if cmd == NUVO_SET_MASS_ERASE_TIME:
+            return "SET_MASS_ERASE_TIME"
+        if cmd == NUVO_SET_POST_MASS_ERASE_TIME:
+            return "SET_POST_MASS_ERASE_TIME"
+        if cmd == NUVO_CMD_GET_PID:
+            return "GET_PID"
         return "UNKNOWN"
 
     def _n51DoCmd(self, cmd, data: bytearray, checkStatus=True, rlen=0):
@@ -252,7 +260,7 @@ class newaeUSBICPLib(ICPLibInterface):
         return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_DEVICEID, bytearray(), checkStatus=True, rlen=4))
 
     def read_pid(self) -> int:
-        return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_DEVICEID, bytearray(), checkStatus=True, rlen=4))
+        return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_PID, bytearray(), checkStatus=True, rlen=4))
 
     def read_cid(self) -> int:
         return unpackuint32(self._n51DoCmd(NUVO_CMD_GET_CID, bytearray(), checkStatus=True, rlen=4))

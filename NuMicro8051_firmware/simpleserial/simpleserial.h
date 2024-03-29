@@ -5,7 +5,6 @@
 #define SIMPLESERIAL_H
 
 #include <stdint.h>
-#include "hal.h"
 
 #define SS_VER_1_0 0
 #define SS_VER_1_1 1
@@ -15,10 +14,6 @@
 #ifndef SS_VER
 	#define SS_VER SS_VER_1_1
 	#warning "SS_VER undefined! Setting SS_VER=SS_VER_1_1"
-#endif
-
-#ifndef ARGQUAL
-#define ARGQUAL
 #endif
 
 // Set up the SimpleSerial module
@@ -42,7 +37,7 @@ void simpleserial_init(void);
 // - The callback function returns a number in [0x00, 0xFF] as a status code;
 //   in protocol v1.1, this status code is returned through a "z" message
 #if SS_VER == SS_VER_2_1
-int simpleserial_addcmd(char c, uint8_t len, uint8_t (*fp)(uint8_t, uint8_t, uint8_t, uint8_t*) REENTRANT);
+int simpleserial_addcmd(char c, unsigned int len, uint8_t (*fp)(uint8_t, uint8_t, uint8_t, uint8_t*) __reentrant);
 #else
 
 #define CMD_FLAG_NONE	0x00
@@ -50,8 +45,8 @@ int simpleserial_addcmd(char c, uint8_t len, uint8_t (*fp)(uint8_t, uint8_t, uin
 // The first byte (hex-encoded) indicates the length.
 #define CMD_FLAG_LEN	0x01
 
-int simpleserial_addcmd_flags(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) REENTRANT, uint8_t);
-int simpleserial_addcmd(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) REENTRANT);
+int simpleserial_addcmd_flags(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) __reentrant, uint8_t);
+int simpleserial_addcmd(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) __reentrant);
 #endif
 
 // Attempt to process a command

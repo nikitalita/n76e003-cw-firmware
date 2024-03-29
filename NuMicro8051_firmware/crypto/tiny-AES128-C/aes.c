@@ -59,14 +59,6 @@ NOTE:   String length must be evenly divisible by 16byte (str_len % 16 == 0)
   #define MULTIPLY_AS_A_FUNCTION 0
 #endif
 
-#ifndef REENTRANT
-#define REENTRANT
-#endif
-#ifndef XDATA
-#define XDATA
-#endif
-
-
 /*****************************************************************************/
 /* Private variables:                                                        */
 /*****************************************************************************/
@@ -75,7 +67,7 @@ typedef uint8_t __data state_t[4][4];
 static state_t* state;
 
 // The array that stores the round keys.
-static uint8_t XDATA RoundKey[176];
+static uint8_t __xdata RoundKey[176];
 
 static uint8_t __data input_save[16];
 

@@ -13,7 +13,3 @@ void trigger_high(void);
 #define set_trigger(val) P04 = val
 #define led_error(status) P05 = status
 #define led_ok(status) P12 = status
-#define REENTRANT __reentrant
-#define XDATA __xdata
-#define CODE __code
-#define DATA __data

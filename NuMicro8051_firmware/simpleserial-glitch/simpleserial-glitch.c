@@ -31,9 +31,9 @@
 // #pragma GCC optimize ("O0")
 
 #if SS_VER == SS_VER_2_1
-uint8_t glitch_loop(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
+uint8_t glitch_loop(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) __reentrant
 #else
-uint8_t glitch_loop(uint8_t* in, uint8_t len) REENTRANT
+uint8_t glitch_loop(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     volatile uint16_t i, j;
@@ -55,9 +55,9 @@ uint8_t glitch_loop(uint8_t* in, uint8_t len) REENTRANT
 }
 
 #if SS_VER == SS_VER_2_1
-uint8_t glitch_comparison(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
+uint8_t glitch_comparison(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) __reentrant
 #else
-uint8_t glitch_comparison(uint8_t* in, uint8_t len) REENTRANT
+uint8_t glitch_comparison(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     uint8_t ok = 5;
@@ -73,9 +73,9 @@ uint8_t glitch_comparison(uint8_t* in, uint8_t len) REENTRANT
 }
 
 #if SS_VER == SS_VER_2_1
-uint8_t password(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* pw) REENTRANT
+uint8_t password(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* pw) __reentrant
 #else
-uint8_t password(uint8_t* pw, uint8_t len) REENTRANT
+uint8_t password(uint8_t* pw, uint8_t len) __reentrant
 #endif
 {
     char passwd[] = "touch";
@@ -98,9 +98,9 @@ uint8_t password(uint8_t* pw, uint8_t len) REENTRANT
 }
 
 #if SS_VER == SS_VER_2_1
-uint8_t infinite_loop(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
+uint8_t infinite_loop(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) __reentrant
 #else
-uint8_t infinite_loop(uint8_t* in, uint8_t len) REENTRANT
+uint8_t infinite_loop(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     led_ok(1);

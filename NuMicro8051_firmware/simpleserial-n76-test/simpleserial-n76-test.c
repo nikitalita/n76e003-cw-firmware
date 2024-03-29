@@ -33,129 +33,6 @@
 // #pragma GCC push_options
 // #pragma GCC optimize ("O0")
 
-#if SS_VER == SS_VER_2_1
-uint8_t glitch_loop(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
-#else
-uint8_t glitch_loop(uint8_t* in, uint8_t len) REENTRANT
-#endif
-{
-    volatile uint16_t i, j;
-    volatile uint32_t cnt;
-    cnt = 0;
-    trigger_high();
-    for(i=0; i<50; i++){
-        for(j=0; j<50; j++){
-            cnt++;
-        }
-    }
-    trigger_low();
-    simpleserial_put('r', 4, (uint8_t*)&cnt);
-#if SS_VER == SS_VER_2_1
-    return (cnt != 2500) ? 0x10 : 0x00;
-#else
-    return (cnt != 2500);
-#endif
-}
-
-#if SS_VER == SS_VER_2_1
-uint8_t glitch_comparison(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
-#else
-uint8_t glitch_comparison(uint8_t* in, uint8_t len) REENTRANT
-#endif
-{
-    uint8_t ok = 5;
-    trigger_high();
-    if (*in == 0xA2){
-        ok = 1;
-    } else {
-        ok = 0;
-    }
-    trigger_low();
-    simpleserial_put('r', 1, (uint8_t*)&ok);
-    return 0x00;
-}
-
-#if SS_VER == SS_VER_2_1
-uint8_t password(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* pw) REENTRANT
-#else
-uint8_t password(uint8_t* pw, uint8_t len) REENTRANT
-#endif
-{
-    char passwd[] = "touch";
-    char passok = 1;
-    int cnt;
-
-    trigger_high();
-
-    //Simple test - doesn't check for too-long password!
-    for(cnt = 0; cnt < 5; cnt++){
-        if (pw[cnt] != passwd[cnt]){
-            passok = 0;
-        }
-    }
-
-    trigger_low();
-
-    simpleserial_put('r', 1, (uint8_t*)&passok);
-    return 0x00;
-}
-
-#if SS_VER == SS_VER_2_1
-uint8_t infinite_loop(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
-#else
-uint8_t infinite_loop(uint8_t* in, uint8_t len) REENTRANT
-#endif
-{
-    led_ok(1);
-    led_error(0);
-
-    //Some fake variable
-    volatile uint8_t a = 0;
-
-    //External trigger logic
-    trigger_high();
-    trigger_low();
-
-    //Should be an infinite loop
-    while(a != 2){
-    ;
-    }
-
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-
-    putch('r');
-    putch('B');
-    putch('R');
-    putch('E');
-    putch('A');
-    putch('K');
-    putch('O');
-    putch('U');
-    putch('T');
-    putch('\n');
-
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-    led_error(1);
-
-    return 0;
-}
-
-// #pragma GCC pop_options
-
 void BYTE_READ_FUNC(uint8_t cmd, uint16_t start, uint8_t len, uint8_t *buf)
 {
   uint8_t i;
@@ -179,9 +56,9 @@ void BYTE_READ_FUNC(uint8_t cmd, uint16_t start, uint8_t len, uint8_t *buf)
 /**
  * @brief      Get the RC trim values (i.e. the internal clock calibration values)
 */
-uint8_t get_rc_trim_values(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
+uint8_t get_rc_trim_values(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) __reentrant
 #else
-uint8_t get_rc_trim_values(uint8_t* in, uint8_t len) REENTRANT
+uint8_t get_rc_trim_values(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     static uint8_t __data hircmap[12];
@@ -200,9 +77,9 @@ static uint8_t ROM_DATA[128];
  * Expects 8-bit command, 16-bit start address (little endian), 8-bit length in input buffer
  * Commands are in isp_uart0.h
 */
-uint8_t get_data(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
+uint8_t get_data(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) __reentrant
 #else
-uint8_t get_data(uint8_t* in, uint8_t len) REENTRANT
+uint8_t get_data(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     if (len < 4) {
@@ -230,9 +107,9 @@ uint8_t get_data(uint8_t* in, uint8_t len) REENTRANT
 
 #if SS_VER == SS_VER_2_1
 // Just echos back the input data
-uint8_t echo(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *in) REENTRANT
+uint8_t echo(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *in) __reentrant
 #else
-uint8_t echo(uint8_t* in, uint8_t len) REENTRANT
+uint8_t echo(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     simpleserial_put('r', len, in);
@@ -261,9 +138,9 @@ void Timer1_Delay10ms_16mhz_vals(UINT32 u32CNT)
 #define BLINK_DELAY 50
 
 #if SS_VER == SS_VER_2_1
-uint8_t blink_forever(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) REENTRANT
+uint8_t blink_forever(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t* in) __reentrant
 #else
-uint8_t blink_forever(uint8_t* in, uint8_t len) REENTRANT
+uint8_t blink_forever(uint8_t* in, uint8_t len) __reentrant
 #endif
 {
     #ifdef FOSC_240000
@@ -297,26 +174,9 @@ int main(void)
     putch('\n');
 
     simpleserial_init();
-    simpleserial_addcmd('g', 0, glitch_loop);
-    simpleserial_addcmd('c', 1, glitch_comparison);
     simpleserial_addcmd('n', 4, get_data);
     simpleserial_addcmd('x', 0, get_rc_trim_values);
     simpleserial_addcmd('y', 0, echo);
     simpleserial_addcmd('b', 0, blink_forever);
-    #if SS_VER == SS_VER_2_1
-    simpleserial_addcmd(0x01, 5, password);
-    #else
-    simpleserial_addcmd('p', 5, password);
-    #endif
-    simpleserial_addcmd('i', 0, infinite_loop);
-    uint16_t __data count = 0;
-    uint8_t __data curr_blink_val = 0;
-    while(1) {
-        simpleserial_get();
-        if (count == 0){
-            curr_blink_val = 1 - curr_blink_val;
-            led_error(curr_blink_val);
-        }
-        count++;
-    }
+    simpleserial_get();
 }

@@ -8,18 +8,11 @@
 #define MAX_SS_CMDS 16
 static int num_commands = 0;
 
-#define MAX_SS_LEN 136 // 128 + 8 padding - max length of any current simpleserial command
+#define MAX_SS_LEN 136 // 128 + 8 padding - max length of return for any current simpleserial command
 
 //#define SS_VER_1_0 0
 //#define SS_VER_1_1 1
 //#define SS_VER_2_0 2
-
-#ifndef REENTRANT
-#define REENTRANT
-#endif
-#ifndef XDATA
-#define XDATA
-#endif
 
 
 // 0xA6 formerly 
@@ -78,9 +71,9 @@ typedef struct ss_cmd
 {
 	char c;
 	uint8_t len;
-	uint8_t (*fp)(uint8_t, uint8_t, uint8_t, uint8_t *) REENTRANT;
+	uint8_t (*fp)(uint8_t, uint8_t, uint8_t, uint8_t *) __reentrant;
 } ss_cmd;
-static ss_cmd XDATA commands[MAX_SS_CMDS];
+static ss_cmd __xdata commands[MAX_SS_CMDS];
 
 void ss_puts(char *x)
 {
@@ -91,14 +84,14 @@ void ss_puts(char *x)
 
 #define FRAME_BYTE 0x00
 
-uint8_t check_version(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *data) REENTRANT
+uint8_t check_version(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *data) __reentrant
 {
 	uint8_t ver = SS_VER;
 	simpleserial_put('r', 1, &ver);
 	return SS_ERR_OK;
 }
 
-uint8_t ss_get_commands(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *data) REENTRANT
+uint8_t ss_get_commands(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *data) __reentrant
 {
     uint8_t cmd_chars[MAX_SS_CMDS];
     for (uint8_t i = 0; i < (num_commands & 0xFF); i++) {
@@ -109,7 +102,6 @@ uint8_t ss_get_commands(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *data) R
     return 0x00;
 
 }
-
 
 uint8_t stuff_data(uint8_t *buf, uint8_t len)
 {
@@ -146,7 +138,7 @@ void simpleserial_init()
     simpleserial_addcmd('w', 0, ss_get_commands);
 }
 
-int simpleserial_addcmd(char c, uint8_t len, uint8_t (*fp)(uint8_t, uint8_t, uint8_t, uint8_t*) REENTRANT)
+int simpleserial_addcmd(char c, unsigned int len, uint8_t (*fp)(uint8_t, uint8_t, uint8_t, uint8_t*) __reentrant)
 {
 	if(num_commands >= MAX_SS_CMDS) {
 		putch('a');
@@ -168,7 +160,7 @@ int simpleserial_addcmd(char c, uint8_t len, uint8_t (*fp)(uint8_t, uint8_t, uin
 
 void simpleserial_get(void)
 {
-    static uint8_t XDATA data_buf[MAX_SS_LEN];
+    static uint8_t __xdata data_buf[MAX_SS_LEN];
 	uint8_t err = 0;
 
 	for (int i = 0; i < 4; i++) {
@@ -227,7 +219,9 @@ void simpleserial_get(void)
 		err = SS_ERR_CRC;
 		goto ERROR;
 	}
+
 	err = commands[c].fp(data_buf[1], data_buf[2], data_buf[3], data_buf+4);
+
 ERROR:
 	simpleserial_put('e', 0x01, &err);
 	return;
@@ -235,7 +229,7 @@ ERROR:
 
 void simpleserial_put(char c, uint8_t size, uint8_t* output)
 {
-	static uint8_t XDATA data_buf[MAX_SS_LEN];
+	static uint8_t __xdata data_buf[MAX_SS_LEN];
 	data_buf[0] = 0x00;
 	data_buf[1] = c;
 	data_buf[2] = size;
@@ -253,16 +247,15 @@ void simpleserial_put(char c, uint8_t size, uint8_t* output)
 
 
 #else
-// Not enough memory for SS_VER_1_0, SS_VER_1_1
-// #error "SS_VER_1_0, SS_VER_1_1 are not supported for this platform! Use SS_VER_2_1."
+
 typedef struct ss_cmd
 {
 	char c;
 	uint8_t len;
-	uint8_t (*fp)(uint8_t*, uint8_t) REENTRANT;
+	uint8_t (*fp)(uint8_t*, uint8_t) __reentrant;
 	uint8_t flags;
 } ss_cmd;
-static ss_cmd XDATA commands[MAX_SS_CMDS];
+static ss_cmd __xdata commands[MAX_SS_CMDS];
 // Callback function for "v" command.
 // This can exist in v1.0 as long as we don't actually send back an ack ("z")
 uint8_t check_version(uint8_t *v, uint8_t len)
@@ -285,7 +278,7 @@ typedef struct ss_cmd_repr {
 
 uint8_t ss_get_commands(uint8_t *x, uint8_t len)
 {
-    ss_cmd_repr XDATA repr_cmd_buf[MAX_SS_CMDS];
+    ss_cmd_repr __xdata repr_cmd_buf[MAX_SS_CMDS];
     for (uint8_t i = 0; i < (num_commands & 0xFF); i++) {
         repr_cmd_buf[i].c = commands[i].c;
         repr_cmd_buf[i].len = commands[i].len;
@@ -342,12 +335,12 @@ void simpleserial_init()
     simpleserial_addcmd('y', 0, ss_num_commands);
 }
 
-int simpleserial_addcmd(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) REENTRANT)
+int simpleserial_addcmd(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) __reentrant)
 {
 	return simpleserial_addcmd_flags(c, len, fp, CMD_FLAG_NONE);
 }
 
-int simpleserial_addcmd_flags(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) REENTRANT, uint8_t fl)
+int simpleserial_addcmd_flags(char c, unsigned int len, uint8_t (*fp)(uint8_t*, uint8_t) __reentrant, uint8_t fl)
 {
 	if(num_commands >= MAX_SS_CMDS)
 		return 1;
@@ -366,8 +359,8 @@ int simpleserial_addcmd_flags(char c, unsigned int len, uint8_t (*fp)(uint8_t*, 
 
 void simpleserial_get(void)
 {
-	char XDATA ascii_buf[2*MAX_SS_LEN];
-	uint8_t XDATA data_buf[MAX_SS_LEN];
+	char __xdata ascii_buf[2*MAX_SS_LEN];
+	uint8_t __xdata data_buf[MAX_SS_LEN];
 	char c;
 
 	// Find which command we're receiving

@@ -22,19 +22,19 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-uint8_t get_mask(uint8_t* m, uint8_t len) REENTRANT
+uint8_t get_mask(uint8_t* m, uint8_t len) __reentrant
 {
   aes_indep_mask(m, len);
   return 0x00;
 }
 
-uint8_t get_key(uint8_t* k, uint8_t len) REENTRANT
+uint8_t get_key(uint8_t* k, uint8_t len) __reentrant
 {
 	aes_indep_key(k);
 	return 0x00;
 }
 
-uint8_t get_pt(uint8_t* pt, uint8_t len) REENTRANT
+uint8_t get_pt(uint8_t* pt, uint8_t len) __reentrant
 {
     aes_indep_enc_pretrigger(pt);
 
@@ -53,7 +53,7 @@ uint8_t get_pt(uint8_t* pt, uint8_t len) REENTRANT
 	return 0x00;
 }
 
-uint8_t reset(uint8_t* x, uint8_t len) REENTRANT
+uint8_t reset(uint8_t* x, uint8_t len) __reentrant
 {
     // Reset key here if needed
 	return 0x00;
@@ -61,7 +61,7 @@ uint8_t reset(uint8_t* x, uint8_t len) REENTRANT
 
 static uint16_t num_encryption_rounds = 10;
 
-uint8_t enc_multi_getpt(uint8_t* pt, uint8_t len) REENTRANT
+uint8_t enc_multi_getpt(uint8_t* pt, uint8_t len) __reentrant
 {
     aes_indep_enc_pretrigger(pt);
 
@@ -76,7 +76,7 @@ uint8_t enc_multi_getpt(uint8_t* pt, uint8_t len) REENTRANT
     return 0;
 }
 
-uint8_t enc_multi_setnum(uint8_t* t, uint8_t len) REENTRANT
+uint8_t enc_multi_setnum(uint8_t* t, uint8_t len) __reentrant
 {
     //Assumes user entered a number like [0, 200] to mean "200"
     //which is most sane looking for humans I think
@@ -85,7 +85,7 @@ uint8_t enc_multi_setnum(uint8_t* t, uint8_t len) REENTRANT
     return 0;
 }
 #if SS_VER == SS_VER_2_1
-uint8_t aes(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) REENTRANT
+uint8_t aes(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) __reentrant
 {
     uint8_t req_len = 0;
     uint8_t err = 0;

@@ -40,7 +40,7 @@ void AES128_ECB_decrypt(uint8_t* input, uint8_t* key, uint8_t *output);
 uint8_t ss_crc(uint8_t *, uint8_t);
 
 //basically just getting IV
-uint8_t init_bootloader(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t * buf) REENTRANT
+uint8_t init_bootloader(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t * buf) __reentrant
 {
     if (initialized) {
         return 0x12;
@@ -57,7 +57,7 @@ uint8_t init_bootloader(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t * buf) R
     return 0;
 }
 
-uint8_t set_addr(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) REENTRANT
+uint8_t set_addr(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) __reentrant
 {
     if (len != 4) {
         return SS_ERR_LEN;
@@ -66,7 +66,7 @@ uint8_t set_addr(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) REENTRANT
     return 0;
 }
 
-uint8_t read_mem(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) REENTRANT
+uint8_t read_mem(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) __reentrant
 {
     return 0x20; //permission error
 }
@@ -77,7 +77,7 @@ uint8_t write_plaintext(uint8_t len, uint8_t *plaintext)
     return 0;
 }
 
-uint8_t bootloader_recv(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) REENTRANT
+uint8_t bootloader_recv(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf) __reentrant
 {
     if (!initialized) {
         return 0x12;

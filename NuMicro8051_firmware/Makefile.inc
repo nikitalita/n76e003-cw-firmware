@@ -14,8 +14,6 @@ VPATH += $(LIBDIR):$(HALDIR)
 
 # Platform Specific defines
 # ------------------------------------------------------
-# See Datasheet section 13.5 for 16.6MHz HIRC mode
-# N76 Clock Frequency (-DFOSC_160000, -DFOSC_166000)
 ifeq ($(PLATFORM),)
     $(error PLATFORM not defined)
 endif
@@ -128,14 +126,18 @@ ifneq ($(CRYPTO_OPTIONS),NONE)
     endif
   endif
 endif
+
+# Not enough memory to run crypto targets with SS_VER_1_1 when XRAM_SIZE <= 768, only SS_VER_2_1
+SMALL_XRAM_SIZES = 128 256 512 768
 ifneq ($(MAKECMDGOALS),clean)
     ifneq ($(CRYPTO_TARGET),NONE)
         ifneq ($(CRYPTO_TARGET),TINYAES128C)
             $(error TINYAES128C is the only supported CRYPTO_TARGET for $(PLATFORM))
         endif
-        # Not enough memory to run crypto targets with SS_VER_1_1
         ifneq ($(SS_VER), SS_VER_2_1)
-            $(error CRYPTO_TARGET is not supported for $(SS_VER) for $(PLATFORM), use SS_VER_2_1)
+            ifneq ($(filter $(XRAM_SIZE),$(SMALL_XRAM_SIZES)),)
+                $(error CRYPTO_TARGET is not supported with SS_VER=$(SS_VER) for $(PLATFORM), use SS_VER_2_1)
+            endif
         endif
         include $(FIRMWAREPATH)/crypto/Makefile.crypto
     endif

@@ -97,4 +97,4 @@ def thing2():
 		config.print_config()
 
 if __name__ == "__main__":
-	thing2()
+	main_test()

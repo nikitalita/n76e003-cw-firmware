@@ -1,5 +1,6 @@
 import json
 import math
+import platform
 import subprocess
 import sys
 import binascii
@@ -39,12 +40,12 @@ NU51_BASE_FW_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Nu
 
 # dry_run: Building and flashing the firmware, using a real scope and target, setting the all settings,
 # but not turning on glitching
-DRY_RUN = False
+DRY_RUN = True
 # mock: using the mock scope in `mocks`; simulated scope, simulated target
 MOCK = False
 
-
-_using_earlier_board = False
+# Swap RX/TX pins for earlier versions of the CW308_N76E003 board
+_using_earlier_board = True
 
 def set_gpio(scope: cw.scopes.OpenADC):
 	scope.io.nrst = None
@@ -53,15 +54,8 @@ def set_gpio(scope: cw.scopes.OpenADC):
 	scope.io.tio3 = None
 
 	scope.io.hs2 = "clkgen"
-	# TODO: remove this in final version
-	# earlier (pre 1.2) versions of the boards had these swapped, and that's what I'm currently testing with
-	if PLATFORM == "CW308_N76E003" and _using_earlier_board:
-		print("USING EARLIER BOARD WITH SWAPPED TX AND RX!!!")
-		scope.io.tio1 = "serial_tx"
-		scope.io.tio2 = "serial_rx"
-	else:
-		scope.io.tio1 = "serial_rx"
-		scope.io.tio2 = "serial_tx"
+	scope.io.tio1 = "serial_rx"
+	scope.io.tio2 = "serial_tx"
 	scope.io.tio4 = None
 
 def fb_setup(scope: cw.scopes.OpenADC):
@@ -109,10 +103,17 @@ def target_setup(target):
 				target.baud = 38400*24/7.37
 			time.sleep(0.1)
 		elif PLATFORM == "CW308_N76E003":
-			# earlier versions of the boards had these swapped, and that is what I'm currently testing with
-			# change them back if you are using a later version
-			scope.io.tio1 = "serial_tx"
-			scope.io.tio2 = "serial_rx"
+			# TODO: remove this in final version
+			# earlier versions of the boards (pre 1.2) had these swapped, and that is what I'm currently testing with
+			# set `_using_earlier_board` to `False` if you are using the latest version of the board
+			if PLATFORM == "CW308_N76E003" and _using_earlier_board:
+				print("USING EARLIER BOARD WITH SWAPPED TX AND RX!!!")
+				scope.io.tio1 = "serial_tx"
+				scope.io.tio2 = "serial_rx"
+			else:
+				print("USING LATER BOARD WITH CORRECT TX AND RX!!!")
+				scope.io.tio1 = "serial_rx"
+				scope.io.tio2 = "serial_tx"
 			scope.clock.clkgen_freq = ACTUAL_CLKGEN_FREQ
 			calced_baud_rate = calc_UART0_timer3_actual_baud_rate(COMPILED_CLK_FREQ)
 			print("calculated baud rate with compiled clock {}: ".format(COMPILED_CLK_FREQ), calced_baud_rate)
@@ -234,13 +235,15 @@ def test_locking_clock_freq(scope: cw.scopes.OpenADC):
 			else:
 				print("not locked")
 
+MAKE_COMMAND = "make" if platform.system() != "Darwin" else "gmake"
+
 def make_image(fw_dir:str, target_name:str = ""):
 	# get the last part of fw_dir
 	fw_base = target_name if target_name else os.path.basename(fw_dir)
-	print(subprocess.check_output(["make", "clean"], 
+	print(subprocess.check_output([MAKE_COMMAND, "clean"], 
 					cwd=fw_dir).decode("utf-8"))	
 	args = [
-            "make",
+            MAKE_COMMAND,
             "PLATFORM={}".format(PLATFORM),
             "USE_EXTERNAL_CLOCK={}".format(USE_EXTERNAL_CLOCK), 
             "CRYPTO_TARGET={}".format(CRYPTO_TARGET), 

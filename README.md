@@ -8,7 +8,7 @@ firmware: https://github.com/nikitalita/chipwhisperer/tree/n76-wip-branch
 
 ## Usage:
 - Build board
-- Get chipwhisperer with UFO board and CW Advanced Breakout
+- Get chipwhisperer-lite with UFO board and CW Advanced Breakout
 - Put jumpers on GPIO4 connect and 3.3v
 - install chipwhisperer software package according to the instructions, but use my version of chipwhisperer on the `n76-wip-branch` branch instead:
 ```bash

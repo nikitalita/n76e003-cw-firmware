@@ -27,8 +27,8 @@ from programmer_n76_icp import N76ICPProgrammer
 COMPILED_CLK_FREQ  = 16000000
 # What we use for the clkgen
 ACTUAL_CLKGEN_FREQ = 16000000
-# Baud rate for the firmware is currently hard-coded to 115200
-COMPILED_BAUD_RATE = 115200
+# Baud rate for the firmware is currently hard-coded to 230400
+COMPILED_BAUD_RATE = 230400
  # The scope adc doesn't lock when using ext_clock due to the N76E003's internal oscillator having high variance, so it's recommended set this to 1 to have the N76E003 use CLKIN as the clock source
 USE_EXTERNAL_CLOCK = 1
 # SS_VER_1_x is only supported when using no crypto targets; not enough memory.
@@ -36,7 +36,6 @@ SS_VER = "SS_VER_2_1"
 PLATFORM = "CW308_N76E003"
 # Only crypto target supported is TINYAES128C
 CRYPTO_TARGET = "NONE"
-NU51_BASE_FW_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "numicro8051")
 
 # dry_run: Building and flashing the firmware, using a real scope and target, setting the all settings,
 # but not turning on glitching
@@ -44,8 +43,6 @@ DRY_RUN = True
 # mock: using the mock scope in `mocks`; simulated scope, simulated target
 MOCK = False
 
-# Swap RX/TX pins for earlier versions of the CW308_N76E003 board
-_using_earlier_board = os.environ.get("USING_EARLIER_BOARD", False)
 
 def set_gpio(scope: cw.scopes.OpenADC):
 	scope.io.nrst = None
@@ -106,12 +103,13 @@ def target_setup(target):
 			# TODO: remove this in final version
 			# earlier versions of the boards (pre 1.2) had these swapped, and that is what I'm currently testing with
 			# set `_using_earlier_board` to `False` if you are using the latest version of the board
-			if PLATFORM == "CW308_N76E003" and _using_earlier_board:
+			_using_earlier_board = os.environ.get("USING_EARLIER_BOARD", False)
+			if _using_earlier_board:
 				print("USING EARLIER BOARD WITH SWAPPED TX AND RX!!!")
 				scope.io.tio1 = "serial_tx"
 				scope.io.tio2 = "serial_rx"
 			else:
-				print("USING LATER BOARD WITH CORRECT TX AND RX!!!")
+				print("SERIAL LINES: scope.io.tio1 = serial_rx, scope.io.tio2 = serial_tx")
 				scope.io.tio1 = "serial_rx"
 				scope.io.tio2 = "serial_tx"
 			scope.clock.clkgen_freq = ACTUAL_CLKGEN_FREQ
@@ -138,13 +136,13 @@ def get_programmer_type():
 		return None
 	
 def get_base_fw_dir():
-	if PLATFORM == "CW308_N76E003":
-		return NU51_BASE_FW_DIR
 	# find the directory where the chipwhisperer python module is located
 	# this is used to find the firmware directory
 	cw_dir = os.path.dirname(cw.__file__)
 	# ../../hardware/victims/firmware/
 	cw_dir = os.path.normpath(os.path.join(cw_dir, "..", "..", "hardware", "victims", "firmware"))
+	if PLATFORM == "CW308_N76E003":
+		return os.path.join(cw_dir, "numicro8051")
 	return cw_dir
 
 
@@ -278,6 +276,7 @@ def make_image(fw_dir:str, target_name:str = ""):
             "CRYPTO_TARGET={}".format(CRYPTO_TARGET), 
             "SS_VER={}".format(SS_VER), 
             "F_CPU={}".format(COMPILED_CLK_FREQ), 
+			"BAUD_RATE={}".format(COMPILED_BAUD_RATE),
             "-j"
             ]
 	print(subprocess.check_output(args, cwd=fw_dir).decode("utf-8"))

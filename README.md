@@ -4,6 +4,8 @@ board: https://github.com/nikitalita/n76e003-ufo-target-board
 
 programmer: https://github.com/nikitalita/NuMicro-8051-prog
 
+firmware: https://github.com/nikitalita/chipwhisperer/tree/n76-wip-branch
+
 ## Usage:
 - Build board
 - Get chipwhisperer with UFO board and CW Advanced Breakout

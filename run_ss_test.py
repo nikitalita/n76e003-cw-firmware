@@ -24,7 +24,7 @@ from programmer_n76_icp import N76ICPProgrammer
 
 # Default is 16mhz, max for both compiled and max is 16.6mhz; it's not stable at higher frequencies
 # Compiled clock rate = what the firmware uses when calculating the baud rates
-COMPILED_CLK_FREQ  = 16000000
+COMPILED_CLK_FREQ  = 7372800
 # What we use for the clkgen
 ACTUAL_CLKGEN_FREQ = 16000000
 # Baud rate for the firmware
@@ -161,6 +161,13 @@ def get_base_scope_fw_dir():
 def upgrade_scope_firmware():
 	global scope
 	scope_fw_dir = get_base_scope_fw_dir()
+	# check if the naeusb directory exists
+	if not os.path.exists(scope_fw_dir):
+		raise IOError("Firmware directory not found: {}".format(scope_fw_dir))
+	if not os.path.exists(os.path.join(scope_fw_dir, "naeusb")):
+		raise IOError("naeusb directory not found in firmware directory (Did you initialize submodules?): {}".format(scope_fw_dir))
+	if not os.path.exists(os.path.join(scope_fw_dir, "naeusb", "n51_icp.c")):
+		raise IOError("Firmware is not the correct version (are you on the correct chipwhisperer branch?): {}".format(scope_fw_dir))
 	make_image(scope_fw_dir)
 	scope_fw_bin = os.path.join(scope_fw_dir, "ChipWhisperer-Lite.bin")
 	try:

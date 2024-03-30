@@ -27,8 +27,8 @@ from programmer_n76_icp import N76ICPProgrammer
 COMPILED_CLK_FREQ  = 16000000
 # What we use for the clkgen
 ACTUAL_CLKGEN_FREQ = 16000000
-# Baud rate for the firmware is currently hard-coded to 230400
-COMPILED_BAUD_RATE = 230400
+# Baud rate for the firmware
+COMPILED_BAUD_RATE = 115200
  # The scope adc doesn't lock when using ext_clock due to the N76E003's internal oscillator having high variance, so it's recommended set this to 1 to have the N76E003 use CLKIN as the clock source
 USE_EXTERNAL_CLOCK = 1
 # SS_VER_1_x is only supported when using no crypto targets; not enough memory.
@@ -36,6 +36,8 @@ SS_VER = "SS_VER_2_1"
 PLATFORM = "CW308_N76E003"
 # Only crypto target supported is TINYAES128C
 CRYPTO_TARGET = "NONE"
+# Build and then flash the scope firmware (so that we get the NuMicro8051 programming support)
+UPGRADE_SCOPE_FW = True
 
 # dry_run: Building and flashing the firmware, using a real scope and target, setting the all settings,
 # but not turning on glitching
@@ -114,9 +116,11 @@ def target_setup(target):
 				scope.io.tio2 = "serial_tx"
 			scope.clock.clkgen_freq = ACTUAL_CLKGEN_FREQ
 			calced_baud_rate = calc_UART0_timer3_actual_baud_rate(COMPILED_CLK_FREQ)
-			print("calculated baud rate with compiled clock {}: ".format(COMPILED_CLK_FREQ), calced_baud_rate)
-			target_baud_rate = calced_baud_rate * (ACTUAL_CLKGEN_FREQ / COMPILED_CLK_FREQ)
-			print("Target baud rate: ", round(target_baud_rate))
+			print("calculated baud rate with compiled clock {}: {}".format(COMPILED_CLK_FREQ, calced_baud_rate))
+			target_baud_rate = calced_baud_rate * ACTUAL_CLKGEN_FREQ / COMPILED_CLK_FREQ
+			print("Target baud rate: {}".format(round(target_baud_rate)))
+			if target_baud_rate > 250000:
+				raise ValueError("Baud rate is too high for the N76E003")
 			target.baud = round(target_baud_rate)
 		else:
 			target.baud = 115200
@@ -191,7 +195,8 @@ def really_reconnect():
 	global scope
 	global target
 	global prog
-	upgrade_scope_firmware()
+	if UPGRADE_SCOPE_FW:
+		upgrade_scope_firmware()
 	try:
 		if scope and not scope.connectStatus:
 			scope.con()
@@ -269,10 +274,11 @@ def make_image(fw_dir:str, target_name:str = ""):
 	fw_base = target_name if target_name else os.path.basename(fw_dir)
 	print(subprocess.check_output([MAKE_COMMAND, "clean"], 
 					cwd=fw_dir).decode("utf-8"))	
+	use_external_clock = 1 if USE_EXTERNAL_CLOCK else 0
 	args = [
             MAKE_COMMAND,
             "PLATFORM={}".format(PLATFORM),
-            "USE_EXTERNAL_CLOCK={}".format(USE_EXTERNAL_CLOCK), 
+            "USE_EXTERNAL_CLOCK={}".format(use_external_clock), 
             "CRYPTO_TARGET={}".format(CRYPTO_TARGET), 
             "SS_VER={}".format(SS_VER), 
             "F_CPU={}".format(COMPILED_CLK_FREQ), 
@@ -327,8 +333,6 @@ def glitch_run(name,
 	test = test_type(scope, target, prog, params, options)
 	print(test.name)
 	test.tries_per_setting = tries_per_setting
-	test._debug = False
-	test.print_scope_status()
 	# mock: using the mock scope in `mocks`; simulated scope, simulated target
 	if MOCK:
 		print("**** MOCK TEST ****")

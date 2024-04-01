@@ -20,17 +20,24 @@ class SSGlitchLoopTest(TestSetupTemplate):
 		return data[0] + (data[1] << 8) + (data[2] << 16) + (data[3] << 24)
 	
 	def prep_run(self) -> bool:
-			if not self.iter_run():
-				raise Exception("Failed to write to serial, please check your connections.")
-			else:
-				data: list = self.get_data()
-				result = self.check_result(data)
-				if result != TestResult.normal:
-					# parse the data into a hex string
-					data_len = str(len(data)) if not (data is None) else "None"
-					data_str = " ".join("{:02x}".format(x) for x in data) if not (data is None) else "None"
-					print("got back (len= "+ data_len +"): " + data_str)
-					raise Exception("Device did not respond as expected. Please check your setup.")
+			retries = 10
+			while(True):
+				if not self.iter_run():
+					raise Exception("Failed to write to serial, please check your connections.")
+				else:
+					data: list = self.get_data()
+					result = self.check_result(data)
+					if result != TestResult.normal:
+						# parse the data into a hex string
+						data_len = str(len(data)) if not (data is None) else "None"
+						data_str = " ".join("{:02x}".format(x) for x in data) if not (data is None) else "None"
+						print("got back (len= "+ data_len +"): " + data_str)
+						retries -= 1
+						if retries == 0:
+							raise Exception("Device did not respond as expected. Please check your setup.")
+						print("Retrying...")
+					else:
+						break
 			return True
 	def after_run(self) -> None:
 			pass

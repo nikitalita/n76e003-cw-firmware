@@ -82,7 +82,8 @@ class TestOptions:
                     results_dir = "./results",
                     logger_level = logging.INFO,
                     fw_image_path: Optional[str] = None,
-                    programmer_args: dict[str, Any] = None
+                    programmer_args: dict[str, Any] = None, 
+                    no_program = False
                     ):
         """
         
@@ -118,6 +119,7 @@ class TestOptions:
           - logger_level (`int`) [default = `TestOptions.LOG_INFO`]: The logger level. Can be one of `TestOptions.LOG_TRACE`, `TestOptions.LOG_DEBUG`, `TestOptions.LOG_INFO`, `TestOptions.LOG_WARNING`, `TestOptions.LOG_ERROR`, `TestOptions.LOG_CRITICAL`.
           - fw_image_path (`Optional[str]`) [default = `None`]: The firmware image path.
           - programmer_args (`dict[str, Any]`) [default = `None`]: Additional programmer arguments.
+          - no_program (`bool`) [default = `False`]: Whether to disable programming the target.
         """
         self.max_iterations = max_iterations
         self.iter_before_report_status = iter_before_report_status
@@ -150,6 +152,7 @@ class TestOptions:
         self.logger_level = logger_level
         self.fw_image_path = fw_image_path
         self.programmer_args = programmer_args if programmer_args else {}
+        self.no_program = no_program
 
     def set_options(self, test_options):
         for key, value in test_options.__dict__.items():
@@ -308,10 +311,6 @@ class TestSetupTemplate(TestOptions):
                                            for x in value) + "]"
 
                 self.logger.info("- %-15s %-20s" % (key + ":", str(value)))
-                if iter % 3 == 0:
-                    self.logger.info("\n")
-            if iter % 3 != 0:
-                self.logger.info("\n")
             self.logger.info("\n")
 
     def print_relevant_scope_glitch_status(self):
@@ -633,16 +632,26 @@ class TestSetupTemplate(TestOptions):
             except:
                 pass
 
-    def _run_precheck(self):
-        if self.scope.clock.adc_freq == 0:
-            raise Exception("ADC clock not set. Please check your setup.")            
-        retries = 5
-        if not self.scope.clock.adc_locked and not "clkgen" in self.scope.clock.adc_src:
-            raise Exception("Clock not locked. Please check your setup.")
-        if not self.scope.clock.adc_locked:
+    def _reacquire_clock(self):
+        retries = 10
+        if self.scope.clock.adc_src.startswith("extclk"):
+            # this will force the adc to reaquire the clock rate
+            self.scope.clock.adc_src = self.scope.clock.adc_src
+            self.scope.clock.reset_dcms()
+            time.sleep(1)
+        while not self.scope.clock.adc_locked or not self.scope.clock.clkgen_locked:
+            if retries == 0:
+                    self.logger.error("***** Error! Could not lock ADC clock! *****")
+                    self.logger.error("Scope status: ")
+                    self.print_scope_status()
+                    self.logger.error("***** Can't proceed without locked ADC, exiting....")
+                    raise Exception("Could not lock ADC clock!")
             self.logger.info("Clock not locked. Retrying...")
-            if not self.scope.try_wait_clkgen_locked(retries, 1):
-                raise Exception("Clock not locked. Please check your setup or try a different clkgen frequency.")
+            retries -= 1
+            # this will force the adc to reaquire the clock rate
+            self.scope.clock.adc_src = self.scope.clock.adc_src
+            self.scope.clock.reset_dcms()
+            time.sleep(1)
         self.logger.info("ADC clock locked at %d Hz." %
                   (self.scope.clock.adc_freq))
     
@@ -700,8 +709,10 @@ class TestSetupTemplate(TestOptions):
             raise OSError("Results directory is not writable")
         if not _no_log and not self.no_save:
             self.setup_run_log(run_name)
-        self.program_target()
-        self._run_precheck()
+        if not self.no_program:
+            self.program_target()
+        else:
+            self.logger.warn("*** Not programming target...")
         self.scope.errors.sam_led_setting = "Default"
 
     def scope_is_connected(self):
@@ -744,7 +755,9 @@ class TestSetupTemplate(TestOptions):
             self.logger.info("******** Starting capture run...")
             self.logger.info("*** Total number of iterations: %d\n" % total_attempts)
             self.reboot_flush()
+            self._reacquire_clock()
             self.prep_run()
+            self._reacquire_clock()
             for num_tries in range(total_attempts):
                 last_state = self.scope.adc.state
                 # If this returns false, it's either a 0 width setting that we already ran, or it's a bad setting
@@ -945,6 +958,7 @@ class TestSetupTemplate(TestOptions):
                 self.glitch_enable()
             else:
                 self.glitch_disable()
+            self._reacquire_clock()
             self.logger.info(f"******** Test run configuration '{run_name}'" + (" (DRY RUN)" if dry_run else "") + ":")
             self.logger.info("")
             self.print_relevant_scope_glitch_status()
@@ -955,6 +969,7 @@ class TestSetupTemplate(TestOptions):
             self.logger.info("******** Prepping run...")
             self.reboot_flush()
             self.prep_run()
+            self._reacquire_clock()
             self.logger.info("******** Starting test run...{}".format(" (DRY RUN)" if dry_run else ""))
             def handle_reset(setting, reason):
                 if setting:
@@ -1041,7 +1056,8 @@ class TestSetupTemplate(TestOptions):
 
                     if self.should_block_and_check_for_reset and not self._block_and_check_for_reset(False):
                         consecutive_timeouts += 1
-                        handle_reset(glitch_setting, "Scope timed out")
+                        self._reacquire_clock()
+                        handle_reset(glitch_setting, " Scope timed out")
                         continue
                     consecutive_timeouts = 0
                     if self.silence_target_warnings:

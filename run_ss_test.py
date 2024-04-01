@@ -27,6 +27,7 @@ from programmer_n76_icp import N76ICPProgrammer
 COMPILED_CLK_FREQ  = 7372800
 # What we use for the clkgen
 ACTUAL_CLKGEN_FREQ = 16000000
+# ACTUAL_CLKGEN_FREQ = 24000000
 # Baud rate for the firmware
 COMPILED_BAUD_RATE = 115200
  # The scope adc doesn't lock when using ext_clock due to the N76E003's internal oscillator having high variance, so it's recommended set this to 1 to have the N76E003 use CLKIN as the clock source
@@ -34,6 +35,7 @@ USE_EXTERNAL_CLOCK = 1
 # SS_VER_1_x is only supported when using no crypto targets; not enough memory.
 SS_VER = "SS_VER_2_1"
 PLATFORM = "CW308_N76E003"
+# PLATFORM = "CW308_MS5132K_AT20"
 # Only crypto target supported is TINYAES128C
 CRYPTO_TARGET = "NONE"
 # Build and then flash the scope firmware (so that we get the NuMicro8051 programming support)
@@ -101,7 +103,7 @@ def target_setup(target):
 			else:
 				target.baud = 38400*24/7.37
 			time.sleep(0.1)
-		elif PLATFORM == "CW308_N76E003":
+		elif PLATFORM == "CW308_N76E003" or PLATFORM == "CW308_MS5116K_AT20" or PLATFORM == "CW308_MS5132K_AT20" or PLATFORM == "CW308_N76S003":
 			# TODO: remove this in final version
 			# earlier versions of the boards (pre 1.2) had these swapped, and that is what I'm currently testing with
 			# set `_using_earlier_board` to `False` if you are using the latest version of the board
@@ -120,8 +122,17 @@ def target_setup(target):
 			target_baud_rate = calced_baud_rate * ACTUAL_CLKGEN_FREQ / COMPILED_CLK_FREQ
 			print("Target baud rate: {}".format(round(target_baud_rate)))
 			if target_baud_rate > 250000:
-				raise ValueError("Baud rate is too high for the N76E003")
+				raise ValueError("Target baud rate is too high for platform (compiled baud rate: {}, target baud rate: {})".format(PLATFORM, COMPILED_BAUD_RATE, target_baud_rate))
 			target.baud = round(target_baud_rate)
+			if not USE_EXTERNAL_CLOCK:
+				scope.clock.adc_src = "extclk_x4"
+				# scope.clock.clkgen_src = "extclk"
+				# scope.clock.clkgen_div = 2
+				scope.io.hs2 = "disabled"
+				scope.glitch.clk_src = "target"
+				scope.clock.extclk_freq = COMPILED_CLK_FREQ
+				print("*** Using external clock, disabling HS2 ***")
+				print("Clock: ", scope.clock)
 		else:
 			target.baud = 115200
 
@@ -134,7 +145,7 @@ def get_programmer_type():
 		return cw.programmers.NEORV32Programmer
 	elif PLATFORM == "CW308_SAM4S" or PLATFORM == "CWHUSKY":
 		return cw.programmers.SAM4SProgrammer
-	elif PLATFORM == "CW308_N76E003":
+	elif PLATFORM == "CW308_N76E003" or PLATFORM == "CW308_MS5116K_AT20" or PLATFORM == "CW308_MS5132K_AT20" or PLATFORM == "CW308_N76S003":
 		return N76ICPProgrammer
 	else:
 		return None
@@ -145,7 +156,7 @@ def get_base_fw_dir():
 	cw_dir = os.path.dirname(cw.__file__)
 	# ../../hardware/victims/firmware/
 	cw_dir = os.path.normpath(os.path.join(cw_dir, "..", "..", "hardware", "victims", "firmware"))
-	if PLATFORM == "CW308_N76E003":
+	if PLATFORM == "CW308_N76E003" or PLATFORM == "CW308_MS5116K_AT20" or PLATFORM == "CW308_MS5132K_AT20" or PLATFORM == "CW308_N76S003":
 		return os.path.join(cw_dir, "numicro8051")
 	return cw_dir
 
@@ -286,6 +297,7 @@ def make_image(fw_dir:str, target_name:str = ""):
             MAKE_COMMAND,
             "PLATFORM={}".format(PLATFORM),
             "USE_EXTERNAL_CLOCK={}".format(use_external_clock), 
+			"EXT_CLK={}".format(ACTUAL_CLKGEN_FREQ),
             "CRYPTO_TARGET={}".format(CRYPTO_TARGET), 
             "SS_VER={}".format(SS_VER), 
             "F_CPU={}".format(COMPILED_CLK_FREQ), 
@@ -316,8 +328,6 @@ def capture_run(fw_dir: str = "", name = "", options: TestOptions = None):
 	else:
 		print("*** Building ROM: %s" % fw_dir)
 		test.fw_image_path = make_image(fw_dir)
-		if test.prep_run():
-			print("Device responded as expected, ready to test!")
 
 	data = test.capture_sequence(500, name)
 	mean_data = np.mean(data, axis = 0)
@@ -341,6 +351,9 @@ def glitch_run(name,
 	print(test.name)
 	test.tries_per_setting = tries_per_setting
 	# mock: using the mock scope in `mocks`; simulated scope, simulated target
+	if not USE_EXTERNAL_CLOCK:
+		print ("*** Using internal clock, disabling HS2 ***")
+		test.hs2_output = "disabled"
 	if MOCK:
 		print("**** MOCK TEST ****")
 		print("Skipping flashing....")
@@ -395,6 +408,7 @@ def run_ss_glitch_loop_test():
 	target_name = "simpleserial-glitch"
 	# rom_image_path = ""
 	options = TestOptions()
+	options.max_total_dry_run_resets = 10000
 	options.small_break_seconds = 1
 	options.iter_before_small_break = 1000
 	options.max_consec_resets_per_bad_setting = 100
@@ -418,12 +432,13 @@ def run_ss_glitch_loop_test():
 					target_name = target_name)
 	return gc
 
-def run_ss_version_test():
+def run_ss_version_test(fw_name = "simpleserial-aes-bootloader", target_name = "simpleserial-bootloader"):
 	global CRYPTO_TARGET
 	CRYPTO_TARGET = "TINYAES128C"
 	fw_dir = ""
-	fw_dir = os.path.join(get_base_fw_dir(), "simpleserial-aes-bootloader")
-	target_name = "simpleserial-bootloader"
+	fw_dir = os.path.join(get_base_fw_dir(), fw_name)
+	target_name = target_name
+	make_image(fw_dir, target_name)
 	options = TestOptions()
 	options.small_break_seconds = 1
 	options.iter_before_small_break = 1000
@@ -470,8 +485,81 @@ def get_scope_status(scope):
 		stat_str+="\n"
 	return stat_str
 
+PAGE_ERASE_AP       = 0x22 # 00:1:0:0010, Page erase APROM
+BYTE_READ_AP        = 0x00 # 00:0:0:0000, Byte read APROM
+BYTE_PROGRAM_AP     = 0x21 # 00:1:0:0001, Program APROM
+BYTE_READ_ID        = 0x0C # 00:0:0:1100, Device ID
+PAGE_ERASE_CONFIG   = 0xE2 # 11:1:0:0010, Erase Config
+BYTE_READ_CONFIG    = 0xC0 # 11:0:0:0000, Read Config
+BYTE_PROGRAM_CONFIG = 0xE1 # 11:1:0:0001, Program Config
+READ_UID            = 0x04 # 00:0:0:0100, Unique ID
+PAGE_ERASE_LD       = 0x62 # 01:1:0:0010, Page erase LDROM
+BYTE_PROGRAM_LD     = 0x61 # 01:1:0:0001, Byte program LDROM
+BYTE_READ_LD        = 0x40 # 01:0:0:0000, Byte read LDROM
+READ_CID            = 0x0B # 00:0:0:1011, Company ID
+
+
+
+def test_get_rctrim_values():
+	reconnect(False)
+	target_setup(target)
+	fw_name = "simpleserial-n76-test"
+	fw_dir = os.path.join(get_base_fw_dir(), fw_name)
+	target_name = fw_name
+	fw_path = make_image(fw_dir, target_name)
+	cw.program_target(scope, prog, fw_path)
+	scope.io.target_pwr = False
+	print("hard reset...")
+	time.sleep(5)
+	scope.io.target_pwr = True
+	reboot_flush()
+	scope.try_wait_clkgen_locked(10, 1)
+	print(scope.clock)
+	cmd = BYTE_READ_ID
+	length = 4
+	start = 0
+	in_data = bytearray([cmd, start & 0xff, (start >> 8) & 0xff, length])
+
+	data = None
+	retries = 0
+	while data is None:
+		retries += 1
+		if retries > 10:
+			raise ValueError("Failed to read device id")
+		target.simpleserial_write('n', in_data)
+		data = target.simpleserial_read('r', length)
+			
+	# data is a 9-bit value, little-endian
+	print("data: ", data)
+	device_id = data[0] | (data[1] << 8) 
+	print("device_id: {:02x}".format( device_id))
+	data = None
+	retries = 0
+	while data is None:
+		retries += 1
+		if retries > 10:
+			raise ValueError("Failed to read device id")
+		target.simpleserial_write('x', bytearray())
+		RC_TRIM_LEN = 12
+		ret = target.simpleserial_read_witherrors('r', RC_TRIM_LEN)
+		data = ret['payload']
+	current_rc_trim_vals = data[0] << 1 | (data[1] & 0x01)
+	rctrimVals30_31 = data[2] << 1 | (data[3] & 0x01)
+	rctrimVals32_33 = data[4] << 1 | (data[5] & 0x01)
+	rctrimVals34_35 = data[6] << 1 | (data[7] & 0x01)
+	rctrimVals36_37 = data[8] << 1 | (data[9] & 0x01)
+	rctrimVals38_39 = data[10] << 1 | (data[11] & 0x01)
+	print("current_rc_trim_vals: ", current_rc_trim_vals)
+	print("rctrimVals30_31 (16mhz): ", rctrimVals30_31)
+	print("rctrimVals32_33 (??): ", rctrimVals32_33)
+	print("rctrimVals34_35 (??): ", rctrimVals34_35)
+	print("rctrimVals36_37 (??): ", rctrimVals36_37)
+	print("rctrimVals38_39 (24mhz): ", rctrimVals38_39)
+	target.simpleserial_write('b', bytearray()) # blink forever
+
 run_ss_glitch_loop_test()
-# run_ss_version_test()
+# run_ss_version_test("simpleserial-n76-test", "simpleserial-n76-test")
+# test_get_rctrim_values()
 # test_scope()
 # gc.display_stats()
 # print(get_base_fw_dir())

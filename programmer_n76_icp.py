@@ -60,8 +60,6 @@ NUVO_SET_PROG_TIME = 0xec
 NUVO_SET_PAGE_ERASE_TIME = 0xee
 # Set the mass erase time
 NUVO_SET_MASS_ERASE_TIME = 0xef
-# Set the post mass erase time
-NUVO_SET_POST_MASS_ERASE_TIME = 0xe3
 # Get the Product ID
 NUVO_CMD_GET_PID = 0xeb
 
@@ -173,8 +171,6 @@ class newaeUSBICPLib(ICPLibInterface):
             return "SET_PAGE_ERASE_TIME"
         if cmd == NUVO_SET_MASS_ERASE_TIME:
             return "SET_MASS_ERASE_TIME"
-        if cmd == NUVO_SET_POST_MASS_ERASE_TIME:
-            return "SET_POST_MASS_ERASE_TIME"
         if cmd == NUVO_CMD_GET_PID:
             return "GET_PID"
         return "UNKNOWN"
@@ -225,16 +221,15 @@ class newaeUSBICPLib(ICPLibInterface):
         # windex selects interface, set to 0
         return self._n51DoCmd(NUVO_SET_RAMBUF | (offset << 8), data, checkStatus=True)
 
-    def init(self, do_reset=True) -> bool:
-        val = (1 if do_reset else 0)
+    def init(self) -> bool:
         self.scope.io.cwe.setAVRISPMode(1)
-        self._n51DoCmd(NUVO_CMD_CONNECT, bytearray([val]), checkStatus=True)
+        self._n51DoCmd(NUVO_CMD_CONNECT, bytearray(), checkStatus=True)
         return True
 
-    def entry(self, do_reset=True) -> bool:
+    def entry(self, do_reset=True) -> int:
         val = (1 if do_reset else 0)
-        self._n51DoCmd(NUVO_CMD_ENTER_ICP_MODE, bytearray([val]), checkStatus=True)
-        return True
+        ret = unpackuint32(self._n51DoCmd(NUVO_CMD_ENTER_ICP_MODE, bytearray([val]), checkStatus=True, rlen=4))
+        return ret
     
     def exit(self) -> bool:
         self._n51DoCmd(NUVO_CMD_EXIT_ICP_MODE, bytearray(), checkStatus=True)
@@ -370,22 +365,19 @@ class newaeUSBICPLib(ICPLibInterface):
         self._n51DoCmd(NUVO_CMD_PAGE_ERASE, packuint32(addr), checkStatus=True)
         return True
     
-    def set_program_time(self, time_us: int) -> bool:
-        self._n51DoCmd(NUVO_SET_PROG_TIME, packuint32(time_us), checkStatus=True)
+    def set_program_time(self, delay_us: int, hold_us: int) -> bool:
+        self._n51DoCmd(NUVO_SET_PROG_TIME, packuint32(delay_us) + packuint32(hold_us),  checkStatus=True)
         return True
     
-    def set_page_erase_time(self, time_us: int) -> bool:
-        self._n51DoCmd(NUVO_SET_PAGE_ERASE_TIME, packuint32(time_us), checkStatus=True)
+    def set_page_erase_time(self, delay_us: int, hold_us: int) -> bool:
+        self._n51DoCmd(NUVO_SET_PAGE_ERASE_TIME, packuint32(delay_us) + packuint32(hold_us),  checkStatus=True)
         return True
     
-    def set_mass_erase_time(self, time_us: int) -> bool:
-        self._n51DoCmd(NUVO_SET_MASS_ERASE_TIME, packuint32(time_us), checkStatus=True)
+    def set_mass_erase_time(self, delay_us: int, hold_us: int) -> bool:
+        self._n51DoCmd(NUVO_SET_MASS_ERASE_TIME, packuint32(delay_us) + packuint32(hold_us),  checkStatus=True)
         return True
     
-    def set_post_mass_erase_time(self, time_us: int) -> bool:
-        self._n51DoCmd(NUVO_SET_POST_MASS_ERASE_TIME, packuint32(time_us), checkStatus=True)
-        return True
-    
+
         
 
 
